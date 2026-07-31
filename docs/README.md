@@ -26,6 +26,7 @@ out loud rather than hiding it.
 
 ## The one rule that matters most
 
-**Fail loud, never fake.** A visible failure always beats a
-silent fallback. This applies to code *and* to content — inventing a plausible-looking hour
-count is the same class of error as swallowing an exception to keep a page rendering.
+**Fail loud, never fake.** A visible failure always beats a silent fallback. This applies to
+code *and* to content — inventing a plausible-looking hour count is the same class of error as
+swallowing an exception to keep a page rendering. Stated in full in
+[`conventions.md`](conventions.md).

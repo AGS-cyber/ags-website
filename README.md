@@ -49,7 +49,6 @@ Everything detailed lives in **[docs/](docs/README.md)**:
 | [decisions.md](docs/decisions.md)              | Why things are the way they are, and what was rejected     |
 | [deployment.md](docs/deployment.md)            | Vercel, the domain, DNS                                    |
 
-
 ## The one rule
 
 **Fail loud, never fake.** A visible failure always beats a silent fallback — in code and in

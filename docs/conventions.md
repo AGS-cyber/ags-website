@@ -1,7 +1,7 @@
 # Conventions
 
-This document is the authoritative rulebook: how the rules apply
-here, plus the running list of sanctioned exceptions.
+This document is the authoritative rulebook for the project: how the error-handling policy
+applies here, plus the running list of sanctioned exceptions.
 
 ## Fail loud, never fake
 
@@ -47,29 +47,29 @@ list. If you add one, add it here too.
 All four are decorative browser capabilities where the fallback is genuinely equivalent for the
 user. None of them hide a data or correctness problem.
 
+## Content validation
+
+`lib/reviews.ts` treats bad content as a build failure. Every one of these throws:
+
+| Condition                                            | Thrown by             |
+| ---------------------------------------------------- | --------------------- |
+| `content/reviews/` missing                            | `reviewFilenames()`   |
+| directory present but holding no `.mdx` files         | `reviewFilenames()`   |
+| a required frontmatter field absent                   | `parseReviewFile()`   |
+| `score`, `year` or `hoursWasted` not a number         | `parseReviewFile()`   |
+| `slug` disagreeing with its filename                  | `parseReviewFile()`   |
+
+Errors name the offending file and field, so a failed build says which review is wrong.
+
+Without this, a missing directory or a typo'd field would build **successfully** and produce a
+site with an empty index, `0 GAMES REVIEWED`, `0` hours and an average score of `0` — priority
+4 exactly. A malformed `score` used to reach the badge and the average as `NaN`.
+
+`getReview()` returning `null` for an unknown slug is not a violation: that is a real 404.
+
 ## Known violations
 
-Things that are currently wrong under the policy, recorded rather than hidden.
-
-### `reviewFilenames()` returns `[]` for a missing content directory
-
-`lib/reviews.ts`:
-
-```ts
-if (!fs.existsSync(REVIEWS_DIR)) {
-  return [];
-}
-```
-
-If `content/reviews/` is missing or misnamed, the build **succeeds** and produces a site with
-an empty review index, `0 GAMES REVIEWED`, `0` hours and an average score of `0`. That is
-priority 4 exactly.
-
-It should throw with a message naming the expected path. Frontmatter validation should
-probably go the same way — `Number(data.score)` currently yields `NaN` for a missing or
-malformed `score`, which propagates into the badge and the average silently.
-
-Not yet fixed; flagged deliberately rather than quietly left.
+None currently. Record them here rather than hiding them.
 
 ## Layout
 

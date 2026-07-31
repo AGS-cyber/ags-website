@@ -98,10 +98,16 @@ Sorting is score-descending, so `0` sits above `-58`. The home page derives ever
 from this array — review count, summed hours, mean score, and the count of zeroes. Adding a
 review updates the front page with no code change.
 
-### Known deviation from the error-handling policy
+### Content failures stop the build
 
-`reviewFilenames()` returns `[]` when `content/reviews/` does not exist. That is a **silent
-fallback**: the site would build successfully and render an empty index, zeroed statistics and
-a cheerful "0 GAMES REVIEWED" — priority 4 in [conventions.md](conventions.md), the one we never want.
+Bad review content is a build error, never a degraded render. `reviewFilenames()` throws when
+`content/reviews/` is missing or holds no `.mdx` files, and `parseReviewFile()` throws on absent
+frontmatter, a non-numeric `score`/`year`/`hoursWasted`, or a `slug` that disagrees with its
+filename.
 
-It should throw instead. Tracked in [conventions.md](conventions.md#known-violations).
+Without these, a lost directory or a typo'd field would build successfully and render an empty
+index, zeroed statistics and a cheerful "0 GAMES REVIEWED" — the silent fallback described in
+[conventions.md](conventions.md), and the one outcome we never want.
+
+`getReview()` still returns `null` for an unknown slug. That is a genuine 404, not a
+degradation.
