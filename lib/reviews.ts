@@ -21,12 +21,32 @@ export type Review = {
 
 const REVIEWS_DIR = path.join(process.cwd(), "content", "reviews");
 
+const REQUIRED_FIELDS = [
+  "title",
+  "slug",
+  "score",
+  "platform",
+  "year",
+  "verdict",
+  "hoursWasted",
+  "date",
+] as const;
+
+const NUMERIC_FIELDS = ["score", "year", "hoursWasted"] as const;
+
 function parseReviewFile(filename: string): Review {
   const filePath = path.join(REVIEWS_DIR, filename);
   const raw = fs.readFileSync(filePath, "utf8");
   const { data, content } = matter(raw);
 
-  return {
+  const missing = REQUIRED_FIELDS.filter((field) => data[field] === undefined);
+  if (missing.length > 0) {
+    throw new Error(
+      `content/reviews/${filename}: missing frontmatter: ${missing.join(", ")}`,
+    );
+  }
+
+  const review: Review = {
     title: String(data.title),
     slug: String(data.slug),
     score: Number(data.score),
@@ -37,16 +57,39 @@ function parseReviewFile(filename: string): Review {
     date: String(data.date),
     content,
   };
+
+  for (const field of NUMERIC_FIELDS) {
+    if (Number.isNaN(review[field])) {
+      throw new Error(
+        `content/reviews/${filename}: ${field} is not a number (got ${JSON.stringify(data[field])})`,
+      );
+    }
+  }
+
+  const expectedSlug = filename.replace(/\.mdx$/, "");
+  if (review.slug !== expectedSlug) {
+    throw new Error(
+      `content/reviews/${filename}: slug "${review.slug}" does not match its filename`,
+    );
+  }
+
+  return review;
 }
 
 function reviewFilenames(): string[] {
   if (!fs.existsSync(REVIEWS_DIR)) {
-    return [];
+    throw new Error(`Review content directory not found: ${REVIEWS_DIR}`);
   }
 
-  return fs
+  const filenames = fs
     .readdirSync(REVIEWS_DIR)
     .filter((filename) => filename.endsWith(".mdx"));
+
+  if (filenames.length === 0) {
+    throw new Error(`No .mdx reviews found in ${REVIEWS_DIR}`);
+  }
+
+  return filenames;
 }
 
 /** Every review, least-bad first (-12 before -87). */
