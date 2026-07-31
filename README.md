@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# allgamesuck.com
 
-## Getting Started
+A personal site for the handle I have had since I was very young, and the review blog attached
+to it.
 
-First, run the development server:
+Two things live here:
+
+1. **A landing page** with a deliberately hostile game-UI aesthetic — fake boot sequence,
+   achievement toasts, HUD chrome, and a draggable 3D wireframe of someone at a desk. Serious
+   content, comedic packaging.
+2. **`/reviews`** — a game review blog where `0` is the best score a game can get and `-100` is
+   the worst. The scale is the joke. The criticism underneath it is not.
+
+Next.js 16 (App Router), TypeScript, Tailwind v4, MDX. No database, no auth, no environment
+variables.
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev      # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+```bash
+npm run build    # production build — must exit 0
+npm start        # serve the production build
+npm run lint     # eslint — must exit 0
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Adding a review
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Drop a `.mdx` file into `content/reviews/`. The filename becomes the URL. Nothing needs
+registering.
 
-## Learn More
+Full frontmatter schema, the score bands and the editorial rules are in
+**[docs/content.md](docs/content.md)**.
 
-To learn more about Next.js, take a look at the following resources:
+## Documentation
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Everything detailed lives in **[docs/](docs/README.md)**:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Document                                       | Covers                                                    |
+| ---------------------------------------------- | --------------------------------------------------------- |
+| [architecture.md](docs/architecture.md)        | Stack, rendering model, file map, data layer               |
+| [content.md](docs/content.md)                  | Reviews, frontmatter, the score scale, editorial voice     |
+| [design-system.md](docs/design-system.md)      | Tokens, typography, the layout shell, the accent rule      |
+| [scene.md](docs/scene.md)                      | The 3D hero scene                                          |
+| [conventions.md](docs/conventions.md)          | Error handling, sanctioned `catch` blocks, verification    |
+| [decisions.md](docs/decisions.md)              | Why things are the way they are, and what was rejected     |
+| [deployment.md](docs/deployment.md)            | Vercel, the domain, DNS                                    |
 
-## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## The one rule
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Fail loud, never fake.** A visible failure always beats a silent fallback — in code and in
+content. See [conventions.md](docs/conventions.md).

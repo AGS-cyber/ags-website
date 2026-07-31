@@ -1,26 +1,145 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Design tokens. Dark only — there is no light mode and there never will be.
+--------------------------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #08080a;
+  --surface: #0f0f13;
+  /* Hairlines sit just above the background. --border-bright is for the few
+     places that need to assert themselves: hover, active, deliberate emphasis. */
+  --border: #1c1c22;
+  --border-bright: #2c2c35;
+  --text: #ededf0;
+  --muted: #8b8b95;
+  /* Acid is an accent, not a text colour. It is reserved for scores, links,
+     focus rings and the primary call to action — nothing else. */
+  --acid: #c6f000;
+  --warn: #ff5c5c;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* The font stacks are injected onto <html> by next/font as --font-sans and
+   --font-mono. Tailwind ships defaults under those same two theme keys, which
+   would collide in the cascade, so we unset them and own the families here. */
+@theme {
+  --font-sans: initial;
+  --font-mono: initial;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Every number, label, nav item, score and button uses JetBrains Mono. */
+@utility mono {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  html {
+    background-color: var(--bg);
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Large type wants tight tracking; only small mono labels want it wide. */
+  h1,
+  h2 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Hairlines, never shadows. */
+  hr {
+    border-color: var(--border);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--acid);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--acid);
+    color: var(--bg);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ---------------------------------------------------------------------------
+   The layout shell. Every band on the site — nav, hero, stats, prose, footer —
+   uses this one class, which is what makes the left edge line up everywhere
+   without any per-section arithmetic.
+
+   The gutter scales with the viewport instead of stepping at breakpoints, so
+   the proportions hold at 375px and at 4K. Below 110rem the content is genuinely
+   edge-anchored; past it the shell centres, because review cards three thousand
+   pixels wide would be unreadable no matter how large the display is.
+--------------------------------------------------------------------------- */
+.shell {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 110rem;
+  padding-inline: clamp(1.25rem, 3.5vw, 4rem);
+}
+
+/* ---------------------------------------------------------------------------
+   CRT scanline overlay — fixed, ~3% opacity, never intercepts a click.
+--------------------------------------------------------------------------- */
+.ags-scanlines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--text) 0px,
+    var(--text) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  opacity: 0.03;
+}
+
+/* ---------------------------------------------------------------------------
+   Motion. Every animation here is decorative and is disabled outright under
+   prefers-reduced-motion.
+--------------------------------------------------------------------------- */
+@keyframes ags-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ags-toast {
+  animation: ags-toast-in 220ms ease-out both;
+}
+
+.ags-caret::after {
+  content: "_";
+  animation: ags-blink 1s step-end infinite;
+}
+
+@keyframes ags-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
 }
