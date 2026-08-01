@@ -11,13 +11,21 @@ const ACHIEVEMENTS = [
 const VISIBLE_MS = 3500;
 
 /**
+ * Length of the exit animation. Must match the duration on
+ * `.ags-toast[data-state="leaving"]` in globals.css: the element stays mounted
+ * for exactly this long so the animation can finish before it is removed.
+ */
+const EXIT_MS = 200;
+
+/**
  * Fires a bottom-right achievement popup at 25% / 60% / 95% scroll depth.
  * Each one fires at most once. Entirely suppressed under reduced motion.
  */
 export default function AchievementToast() {
   const [unlocked, setUnlocked] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
   const fired = useRef<Set<number>>(new Set());
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
     const prefersReducedMotion =
@@ -27,6 +35,13 @@ export default function AchievementToast() {
     if (prefersReducedMotion) {
       return;
     }
+
+    const clearTimers = () => {
+      for (const timer of timers.current) {
+        clearTimeout(timer);
+      }
+      timers.current = [];
+    };
 
     const onScroll = () => {
       const scrollable =
@@ -41,12 +56,21 @@ export default function AchievementToast() {
       for (let i = 0; i < ACHIEVEMENTS.length; i += 1) {
         if (depth >= ACHIEVEMENTS[i].depth && !fired.current.has(i)) {
           fired.current.add(i);
+
+          // A second unlock while the first is still on screen replaces it and
+          // starts the clock over, including cancelling a pending exit.
+          clearTimers();
+          setLeaving(false);
           setUnlocked(ACHIEVEMENTS[i].name);
 
-          if (hideTimer.current) {
-            clearTimeout(hideTimer.current);
-          }
-          hideTimer.current = setTimeout(() => setUnlocked(null), VISIBLE_MS);
+          // Two steps out: play the exit, then unmount once it has finished.
+          timers.current.push(
+            setTimeout(() => setLeaving(true), VISIBLE_MS),
+            setTimeout(() => {
+              setUnlocked(null);
+              setLeaving(false);
+            }, VISIBLE_MS + EXIT_MS),
+          );
           break;
         }
       }
@@ -56,9 +80,7 @@ export default function AchievementToast() {
 
     return () => {
       window.removeEventListener("scroll", onScroll);
-      if (hideTimer.current) {
-        clearTimeout(hideTimer.current);
-      }
+      clearTimers();
     };
   }, []);
 
@@ -70,6 +92,7 @@ export default function AchievementToast() {
     <div
       role="status"
       aria-live="polite"
+      data-state={leaving ? "leaving" : "entering"}
       className="ags-toast pointer-events-none fixed right-4 bottom-4 z-40 flex items-center gap-3 border border-[var(--border)] bg-[var(--surface)] p-3 sm:right-6 sm:bottom-6 sm:p-4"
     >
       <div

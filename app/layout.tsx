@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import BootSequence from "@/components/BootSequence";
+import PageTransition from "@/components/PageTransition";
 import Scanlines from "@/components/Scanlines";
 import SiteNav from "@/components/SiteNav";
 
@@ -56,10 +57,10 @@ export default function RootLayout({
         <Scanlines />
         <BootSequence />
         <SiteNav />
-        <main className="flex-1">{children}</main>
+        <PageTransition>{children}</PageTransition>
         <footer className="border-t border-[var(--border)]">
           <div className="shell py-12">
-            <p className="mono text-[10px] leading-relaxed tracking-[0.18em] text-[var(--muted)] uppercase sm:text-[11px]">
+            <p className="ags-reveal mono text-[10px] leading-relaxed tracking-[0.18em] text-[var(--muted)] uppercase sm:text-[11px]">
               ALLGAMESUCK.COM // EST. WHENEVER // STILL PLAYING ANYWAY
             </p>
           </div>

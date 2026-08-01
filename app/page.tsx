@@ -57,30 +57,37 @@ export default function Home() {
           containing-block subtlety to get wrong.
         */}
         <div className="shell grid items-center gap-12 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:gap-16">
+          {/*
+            The hero uses the time-based `ags-enter` rather than a scroll
+            reveal, staggered by --ags-delay: it is above the fold on every
+            viewport, so there is no scroll to drive anything, and this band
+            carries `overflow-hidden`, which would make it the scrollport a
+            view() timeline resolved against.
+          */}
           <div>
             <h1
               // Wide tracking flatters small labels and coarsens large type. At
               // this size the letterforms carry themselves and only need room.
-              className="mono max-w-full leading-[0.88] tracking-[0.01em] text-[var(--text)] uppercase"
+              className="ags-enter mono max-w-full leading-[0.88] tracking-[0.01em] text-[var(--text)] uppercase"
               style={{ fontSize: "clamp(2.25rem, 5vw, 3.25rem)" }}
             >
               ALLGAMESUCK
             </h1>
 
-            <p className="mt-8 max-w-[38ch] text-lg leading-relaxed text-[var(--muted)] sm:text-xl">
+            <p className="ags-enter mt-8 max-w-[38ch] text-lg leading-relaxed text-[var(--muted)] [--ags-delay:90ms] sm:text-xl">
               A lifelong opinion, finally with a domain name.
             </p>
 
-            <div className="mt-10 flex flex-wrap gap-3">
+            <div className="ags-enter mt-10 flex flex-wrap gap-3 [--ags-delay:170ms]">
               <Link
                 href="/reviews"
-                className="mono border border-[var(--acid)] px-6 py-3.5 text-[10px] tracking-[0.18em] text-[var(--acid)] uppercase transition-colors hover:bg-[var(--acid)] hover:text-[var(--bg)] sm:text-[11px]"
+                className="ags-cta mono border border-[var(--acid)] px-6 py-3.5 text-[10px] tracking-[0.18em] text-[var(--acid)] uppercase sm:text-[11px]"
               >
                 READ THE REVIEWS
               </Link>
               <a
                 href="#about"
-                className="mono border border-[var(--border)] px-6 py-3.5 text-[10px] tracking-[0.18em] text-[var(--muted)] uppercase transition-colors hover:border-[var(--border-bright)] hover:text-[var(--text)] sm:text-[11px]"
+                className="mono border border-[var(--border)] px-6 py-3.5 text-[10px] tracking-[0.18em] text-[var(--muted)] uppercase transition-colors duration-300 hover:border-[var(--border-bright)] hover:text-[var(--text)] sm:text-[11px]"
               >
                 WHAT IS THIS
               </a>
@@ -94,7 +101,9 @@ export default function Home() {
       {/* ------------------------------------------------------------ stat HUD */}
       <section
         aria-label="Statistics"
-        className="border-y border-[var(--border)] bg-[var(--surface)]"
+        // ags-stat-band publishes the view timeline the four tiles share, so
+        // they cascade left to right instead of arriving as one slab.
+        className="ags-stat-band border-y border-[var(--border)] bg-[var(--surface)]"
       >
         <div className="shell grid grid-cols-2 sm:grid-cols-4">
           {stats.map((stat, index) => (
@@ -104,7 +113,7 @@ export default function Home() {
               // starts exactly on the shell gutter rather than one tile-padding
               // further in — which is what would break the left edge against
               // every other band on the page.
-              className={`border-[var(--border)] py-8 pr-5 sm:py-11 sm:pr-7 ${
+              className={`ags-stat-tile border-[var(--border)] py-8 pr-5 sm:py-11 sm:pr-7 ${
                 index % 2 === 1 ? "border-l pl-5" : ""
               } ${index > 1 ? "border-t" : ""} sm:border-t-0 ${
                 index !== 0 ? "sm:border-l sm:pl-7" : ""
@@ -126,10 +135,10 @@ export default function Home() {
         id="about"
         className="shell scroll-mt-24 py-24 sm:py-28"
       >
-        <h2 className="mono text-[10px] tracking-[0.22em] text-[var(--muted)] uppercase sm:text-[11px]">
+        <h2 className="ags-reveal mono text-[10px] tracking-[0.22em] text-[var(--muted)] uppercase sm:text-[11px]">
           WHAT IS THIS
         </h2>
-        <div className="mt-10 max-w-[62ch] space-y-6 text-[17px] leading-[1.75] text-[var(--text)]/85 sm:text-lg">
+        <div className="ags-reveal mt-10 max-w-[62ch] space-y-6 text-[17px] leading-[1.75] text-[var(--text)]/85 sm:text-lg">
           <p>
             I have been allgamesuck online since I was very young. It was a joke
             then, it is a joke now, and a few days ago I found the domain still
@@ -152,7 +161,7 @@ export default function Home() {
 
       {/* ------------------------------------------------------ latest reviews */}
       <section className="shell pb-32">
-        <h2 className="mono text-[10px] tracking-[0.22em] text-[var(--muted)] uppercase sm:text-[11px]">
+        <h2 className="ags-reveal mono text-[10px] tracking-[0.22em] text-[var(--muted)] uppercase sm:text-[11px]">
           LATEST REVIEWS
         </h2>
 

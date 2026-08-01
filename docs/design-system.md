@@ -129,7 +129,21 @@ gutter and break the left edge against every other band.
 
 ## Motion
 
-All decorative animation is disabled under `prefers-reduced-motion: reduce` by a global rule in
-`globals.css` that zeroes `animation-duration` and `transition-duration` with `!important`.
-New CSS animations inherit this for free. JavaScript-driven motion must check the media query
-itself — `GamerScene` and `AchievementToast` both do.
+Full treatment in [motion.md](motion.md). The three things to know before writing any:
+
+**Reduced motion is not automatic for everything.** A global rule in `globals.css` zeroes
+`animation-duration` and `transition-duration` with `!important` under
+`prefers-reduced-motion: reduce`, and time-based animation inherits it for free. It does
+**nothing** to a scroll-driven animation, whose progress comes from scroll position rather than
+elapsed time — those rules are wrapped in `@media (prefers-reduced-motion: no-preference)`
+explicitly. JavaScript-driven motion checks the media query itself; `GamerScene` and
+`AchievementToast` both do.
+
+**Nothing is hidden waiting for JavaScript.** Every animation ends at the state the page would
+have had without it, with `both` fill, so a browser that runs none of it shows the finished
+page. Scroll reveals are CSS `view()` timelines, not observers adding a class to
+`opacity: 0` elements.
+
+**Motion must not move a left edge.** The alignment above is measured, and transforms on cards
+and stat tiles are the obvious way to break it. `.ags-reveal` translates on Y only, and the
+spread is re-measured as part of the motion checks.

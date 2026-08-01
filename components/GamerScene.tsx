@@ -1370,7 +1370,10 @@ export default function GamerScene() {
       // where the projection's width and height limits meet — any other shape
       // leaves one axis binding early and wastes the other. Stacked on phones
       // it falls back to tracking viewport width, where width always binds.
-      className="relative h-[clamp(360px,min(88vh,95vw),1000px)] w-full cursor-grab touch-pan-y select-none active:cursor-grabbing lg:aspect-[16/15] lg:h-auto lg:max-h-[88vh]"
+      // ags-enter is the shared load-in: opacity and a translate on this
+      // wrapper only. It changes no layout box, so the ResizeObserver below
+      // never sees it and the canvas is unaffected.
+      className="ags-enter relative h-[clamp(360px,min(88vh,95vw),1000px)] w-full cursor-grab touch-pan-y select-none [--ags-delay:220ms] active:cursor-grabbing lg:aspect-[16/15] lg:h-auto lg:max-h-[88vh]"
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
       <div

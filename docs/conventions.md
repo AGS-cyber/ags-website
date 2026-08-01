@@ -92,7 +92,13 @@ Alignment comes from every band sharing `.shell`. Do not introduce a competing c
   home reads `H1 → H2 → H2 → H3×n`.
 - **Contrast** is measured, not assumed. See
   [design-system.md](design-system.md#contrast).
-- **Reduced motion** is honoured globally in CSS and explicitly in every JS-driven animation.
+- **Reduced motion** is honoured globally in CSS for time-based animation, explicitly in every
+  JS-driven one, and explicitly again in every scroll-driven one — the global rule works by
+  zeroing durations, which does nothing to a timeline driven by scroll position. See
+  [motion.md](motion.md).
+- **No content is hidden waiting for JavaScript.** Scroll reveals are CSS view timelines, not
+  observers that add a class to `opacity: 0` elements. A reveal that never fires is a blank page
+  that builds green and deploys clean — priority 4 with a smile, same as an empty review index.
 
 ## Verification
 
@@ -115,3 +121,11 @@ Alignment comes from every band sharing `.shell`. Do not introduce a competing c
   signal.
 - **One passing frame is not proof for an animated thing.** The scene's worst case is a
   particular rotation angle, not the resting pose.
+- **A scroll-driven animation's worst case is one scroll offset on one viewport size.** A
+  reveal whose range ends past "fully visible" completes everywhere except the last screenful
+  of the document, where it silently sticks part-way. Found by measuring opacity at max scroll
+  across three viewport heights; the footer was pinned at 0.585. See
+  [motion.md](motion.md#traps-found-the-hard-way).
+- **`getBoundingClientRect()` includes transforms.** An element resting at the first frame of a
+  reveal reports a position 20px below its layout box, which puts every scroll offset computed
+  from it 20px out.

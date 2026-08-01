@@ -35,6 +35,11 @@
   html {
     background-color: var(--bg);
     color-scheme: dark;
+    /* The only in-page jump is the hero's "WHAT IS THIS" anchor. Router
+       navigations are unaffected: Next sets scroll-behavior to auto for the
+       duration of its own scroll restoration. Reduced motion puts this back
+       to auto globally, at the bottom of this file. */
+    scroll-behavior: smooth;
   }
 
   body {
@@ -89,6 +94,10 @@
 
 /* ---------------------------------------------------------------------------
    CRT scanline overlay — fixed, ~3% opacity, never intercepts a click.
+
+   The overlay is 3px taller than the viewport and offset 3px up so the slow
+   roll below has somewhere to travel; the gradient repeats every 3px, so a
+   3px translation lands exactly back on itself and the loop is seamless.
 --------------------------------------------------------------------------- */
 .ags-scanlines {
   background-image: repeating-linear-gradient(
@@ -99,12 +108,62 @@
     transparent 3px
   );
   opacity: 0.03;
+  animation: ags-scanline-roll 9s linear infinite;
 }
 
 /* ---------------------------------------------------------------------------
-   Motion. Every animation here is decorative and is disabled outright under
-   prefers-reduced-motion.
+   Motion.
+
+   Two rules govern everything below.
+
+   1. **No animation is load-bearing.** Every one of them ends at the state the
+      page would have had without it, and every entrance uses `both` fill, so a
+      browser that runs none of this — or a hydration that never happens — shows
+      the finished page rather than a blank one. Nothing is hidden by CSS
+      waiting for JavaScript to reveal it.
+   2. **Scroll-driven animation is gated on `prefers-reduced-motion:
+      no-preference` explicitly.** The global reduce block at the bottom of this
+      file works by zeroing `animation-duration`, and that does nothing to a
+      scroll timeline: its progress comes from scroll position, not from time.
+      Time-based animations still inherit the global block for free.
+
+   `animation-duration` is deliberately left unset on the scroll-driven rules —
+   the shorthand would set it to 0s, and these need it to stay `auto` so the
+   keyframes map onto the whole `animation-range`.
 --------------------------------------------------------------------------- */
+:root {
+  /* One entrance easing — decelerating, no overshoot, because nothing on this
+     site bounces — one for state changes, and the durations they use. */
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Scroll-driven reveals use a gentler curve — see .ags-reveal. */
+  --ease-scroll: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-state: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-state: 240ms;
+  --dur-enter: 620ms;
+}
+
+@keyframes ags-rise {
+  from {
+    opacity: 0;
+    transform: translateY(1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ags-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @keyframes ags-toast-in {
   from {
     opacity: 0;
@@ -116,8 +175,74 @@
   }
 }
 
-.ags-toast {
-  animation: ags-toast-in 220ms ease-out both;
+@keyframes ags-toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}
+
+@keyframes ags-boot-line {
+  from {
+    opacity: 0;
+    transform: translateX(-0.4rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ags-scanline-roll {
+  to {
+    transform: translateY(3px);
+  }
+}
+
+@keyframes ags-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes ags-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* --- Entrances that run on load ------------------------------------------ */
+
+/* Staggered by setting --ags-delay at the call site. */
+.ags-enter {
+  animation: ags-rise var(--dur-enter) var(--ease-enter) both;
+  animation-delay: var(--ags-delay, 0ms);
+}
+
+/* Keyed on the pathname, so it replays on every client-side navigation. */
+.ags-page {
+  animation: ags-page-in 420ms var(--ease-enter) both;
+}
+
+/* The boot overlay owns the screen for its first two seconds. Holding the
+   entrances at their first frame until it clears means the page arrives after
+   the overlay rather than behind it. The attribute is only ever set while that
+   overlay is mounted and is removed by the same effect's cleanup — if the
+   overlay never mounts, this never matches. */
+html[data-ags-booting] .ags-enter,
+html[data-ags-booting] .ags-page {
+  animation-play-state: paused;
+}
+
+.ags-boot-line {
+  animation: ags-boot-line 260ms var(--ease-enter) both;
 }
 
 .ags-caret::after {
@@ -125,10 +250,177 @@
   animation: ags-blink 1s step-end infinite;
 }
 
-@keyframes ags-blink {
-  50% {
-    opacity: 0;
+.ags-toast {
+  animation: ags-toast-in 220ms var(--ease-enter) both;
+}
+
+.ags-toast[data-state="leaving"] {
+  animation: ags-toast-out 200ms var(--ease-state) both;
+}
+
+/* --- Scroll-driven reveals ----------------------------------------------- */
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    /* A section rises as it enters the viewport. Do not put this inside the
+       hero: `overflow: hidden` makes an element a scrollport, and a view()
+       timeline resolves against the nearest one, which for a band that never
+       scrolls would pin progress at a constant.
+
+       The range ends at `contain 0%` — the moment the element is fully on
+       screen — because that is the last point every element can actually
+       reach. A longer range measured in `cover` looks better in the middle of
+       a page and is a trap at the end of one: you cannot scroll past the
+       bottom of the document, so the footer's reveal never completed and it
+       sat permanently at 0.59 opacity. Anything that ends after "fully
+       visible" has that bug for the last screenful of the page.
+
+       The easing is gentler than the load-in one. Here the user controls the
+       clock by scrolling, and a curve that front-loads 90% of the movement
+       into the first fifth reads as a jump rather than a glide. */
+    .ags-reveal {
+      animation-name: ags-rise;
+      animation-fill-mode: both;
+      animation-timing-function: var(--ease-scroll);
+      animation-timeline: view();
+      animation-range: entry 0% contain 0%;
+    }
+
+    /* The stat tiles sit side by side, so each one's own view() timeline would
+       fire at the same instant and the row would land as a slab. They share the
+       band's timeline instead and stagger by offsetting their ranges.
+
+       These ranges are `cover`-based, which is only safe because the band has
+       the about section, six review cards and the footer beneath it — several
+       viewports of scroll left to run in. Do not copy this form onto anything
+       that can end up in the last screenful; see .ags-reveal above. */
+    .ags-stat-band {
+      view-timeline-name: --ags-stat-band;
+    }
+
+    .ags-stat-tile {
+      animation-name: ags-rise;
+      animation-fill-mode: both;
+      animation-timing-function: var(--ease-scroll);
+      animation-timeline: --ags-stat-band;
+      animation-range: cover 0% cover 22%;
+    }
+
+    .ags-stat-tile:nth-child(2) {
+      animation-range: cover 6% cover 28%;
+    }
+
+    .ags-stat-tile:nth-child(3) {
+      animation-range: cover 12% cover 34%;
+    }
+
+    .ags-stat-tile:nth-child(4) {
+      animation-range: cover 18% cover 40%;
+    }
   }
+}
+
+/* --- Reading progress ----------------------------------------------------- */
+
+/* Sits on top of the nav's bottom hairline and fills as the document scrolls.
+   Without scroll-timeline support it stays at scaleX(0) — invisible, which is
+   exactly what the nav looked like before it existed. Deliberately --muted and
+   not --acid: see the accent rule in docs/design-system.md. */
+.ags-progress {
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 1px;
+  background-color: var(--muted);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .ags-progress {
+      animation-name: ags-progress;
+      animation-fill-mode: both;
+      animation-timing-function: linear;
+      animation-timeline: scroll(root block);
+    }
+  }
+}
+
+/* --- Hover and focus states ---------------------------------------------- */
+
+/* Colour-only changes stay on Tailwind's `transition-colors`. These three need
+   a transform or a background size, which it can't express. */
+.ags-card {
+  transition:
+    border-color var(--dur-state) var(--ease-state),
+    transform var(--dur-state) var(--ease-state);
+}
+
+.ags-card:hover,
+.ags-card:focus-visible {
+  transform: translateY(-2px);
+}
+
+.ags-card-score {
+  transition: transform var(--dur-state) var(--ease-state);
+}
+
+.ags-card:hover .ags-card-score,
+.ags-card:focus-visible .ags-card-score {
+  transform: translateX(0.25rem);
+}
+
+/* The fill wipes in from the left instead of switching on. A gradient rather
+   than a pseudo-element, so no overflow clipping is involved. */
+.ags-cta {
+  background-image: linear-gradient(var(--acid), var(--acid));
+  background-repeat: no-repeat;
+  background-size: 0% 100%;
+  transition:
+    background-size 380ms var(--ease-enter),
+    color var(--dur-state) var(--ease-state),
+    border-color var(--dur-state) var(--ease-state);
+}
+
+.ags-cta:hover,
+.ags-cta:focus-visible {
+  background-size: 100% 100%;
+  color: var(--bg);
+}
+
+/* Hairline that draws in under a link on hover. */
+.ags-underline {
+  position: relative;
+}
+
+.ags-underline::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: -0.35em;
+  height: 1px;
+  background-color: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--dur-state) var(--ease-state);
+}
+
+.ags-underline:hover::after,
+.ags-underline:focus-visible::after {
+  transform: scaleX(1);
+}
+
+/* Nudges a link in the direction it takes you. */
+.ags-shift {
+  transition:
+    color var(--dur-state) var(--ease-state),
+    transform var(--dur-state) var(--ease-state);
+}
+
+.ags-shift:hover,
+.ags-shift:focus-visible {
+  transform: translateX(-0.25rem);
 }
 
 @media (prefers-reduced-motion: reduce) {

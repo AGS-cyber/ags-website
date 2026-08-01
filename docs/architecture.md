@@ -25,9 +25,14 @@ Everything is static. `npm run build` prerenders:
 - `/reviews/[slug]` — SSG, one page per file via `generateStaticParams()`
 - `/_not-found` — static
 
-Only three components are client components, and all three are decorative:
-`BootSequence`, `AchievementToast`, `GamerScene`. Everything else — including the whole
-data layer and all MDX rendering — is server-side.
+Only four components are client components, and all four are decorative:
+`BootSequence`, `AchievementToast`, `GamerScene`, `PageTransition`. Everything else — including
+the whole data layer and all MDX rendering — is server-side.
+
+`PageTransition` is a client component that renders `<main>` and nothing else. It reads
+`usePathname()` purely to use as a `key`, which remounts the element on navigation so the page
+entrance replays; the pathname is never rendered, and `children` stays a server-rendered tree
+passed straight through. The routes above are all still prerendered as static.
 
 ### Next.js 16 gotcha
 
@@ -60,6 +65,7 @@ components/
   GamerScene.tsx          client — the 3D hero scene (see scene.md)
   BootSequence.tsx        client — fake BIOS overlay, once per session
   AchievementToast.tsx    client — scroll-depth achievement popups
+  PageTransition.tsx      client — <main>, keyed on pathname (see motion.md)
   ReviewCard.tsx          server — shared card for home + index
   ScoreBadge.tsx          server — the score and its band label
   SiteNav.tsx             server — top nav

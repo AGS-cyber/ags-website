@@ -18,10 +18,12 @@ export default function ReviewCard({
   headingLevel: Heading = "h2",
 }: ReviewCardProps) {
   return (
-    <li>
+    // The reveal rides the card's own view() timeline, so a stacked list
+    // cascades as you scroll rather than landing all at once.
+    <li className="ags-reveal">
       <Link
         href={`/reviews/${review.slug}`}
-        className="flex items-start justify-between gap-5 border border-[var(--border)] bg-[var(--surface)] p-6 transition-colors hover:border-[var(--border-bright)] focus-visible:border-[var(--border-bright)] sm:gap-10 sm:p-8"
+        className="ags-card flex items-start justify-between gap-5 border border-[var(--border)] bg-[var(--surface)] p-6 hover:border-[var(--border-bright)] focus-visible:border-[var(--border-bright)] sm:gap-10 sm:p-8"
       >
         <div className="min-w-0">
           <Heading className="mono text-[15px] tracking-[0.06em] text-[var(--text)] uppercase sm:text-lg">
@@ -34,7 +36,12 @@ export default function ReviewCard({
             {review.verdict}
           </p>
         </div>
-        <ScoreBadge score={review.score} />
+        {/* Wrapper rather than a class on ScoreBadge itself: the badge is also
+            used standalone on an article page and should not know about
+            cards. */}
+        <div className="ags-card-score shrink-0">
+          <ScoreBadge score={review.score} />
+        </div>
       </Link>
     </li>
   );

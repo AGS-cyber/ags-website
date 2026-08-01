@@ -94,6 +94,14 @@ export default function BootSequence() {
       // Non-fatal.
     }
 
+    // Holds the page's own entrance animations at their first frame while the
+    // overlay covers the screen, so the site arrives after the boot rather
+    // than behind it. Set only while the overlay is actually mounted, and
+    // removed by this effect's cleanup — which React runs when `dismissed`
+    // flips as well as on unmount, so it cannot outlive the overlay.
+    const root = document.documentElement;
+    root.dataset.agsBooting = "";
+
     const timers: ReturnType<typeof setTimeout>[] = [];
 
     for (let i = 1; i <= BOOT_LINES.length; i += 1) {
@@ -103,6 +111,7 @@ export default function BootSequence() {
     timers.push(setTimeout(() => setDismissed(true), RUN_MS + FADE));
 
     return () => {
+      delete root.dataset.agsBooting;
       for (const timer of timers) {
         clearTimeout(timer);
       }
@@ -135,7 +144,9 @@ export default function BootSequence() {
         {BOOT_LINES.slice(0, visibleLines).map((line, index) => (
           <p
             key={line}
-            className={`mono text-xs tracking-[0.15em] text-[var(--acid)] uppercase sm:text-sm ${
+            // Each line mounts on its own timer, so ags-boot-line runs once as
+            // it appears — the lines type themselves in rather than blinking on.
+            className={`ags-boot-line mono text-xs tracking-[0.15em] text-[var(--acid)] uppercase sm:text-sm ${
               index === visibleLines - 1 ? "ags-caret" : ""
             }`}
           >
