@@ -3,9 +3,13 @@
 `components/GamerScene.tsx` — a person seated at a desk, mid-session, rendered as a rotating 3D
 wireframe on a canvas. It is the largest single piece of code in the project.
 
-**No 3D library.** The scene is roughly 400 vertices and 700 edges; a WebGL dependency would
-cost more bundle than the entire rest of the site. The projection is about fifteen lines of
-matrix maths.
+**No 3D library.** The scene is 493 vertices and 693 edges, plus 66 more that belong to props
+and are only drawn when one is in his hands; a WebGL dependency would cost more bundle than the
+entire rest of the site. The projection is about fifteen lines of matrix maths.
+
+He does not only type. An [activity scheduler](#activities) cycles him through the keyboard,
+a controller, a phone and the occasional loss of composure, driven by [a rig](#the-rig) rather
+than by hardcoded vertex offsets.
 
 ## Geometry
 
@@ -22,8 +26,19 @@ skeleton at module load:
   curled over the mouse.
 - **Furniture** — desk slab with thickness, monitor box with front and back panels, chair with
   seat, back panel and a five-spoke base.
+- **Props** — a gamepad and an upright phone, each modelled *where it is actually held* rather
+  than in the rest hand. The pose that uses one places the wrists around it by design, so
+  authoring them in place is what makes the grip line up.
 
-Posture is a gamer's: pelvis back, shoulders forward, head craned at the screen.
+Posture is a gamer's: pelvis back, shoulders forward, head craned at the screen. That is the
+**rest pose**, and every activity is written as a departure from it.
+
+### Prop edges are kept separate
+
+`propEdges` holds the pad's and the phone's edges outside the main list, so a hidden prop costs
+nothing to skip. It has to be a skip rather than a zero alpha: `lineCap: "round"` paints a dot
+for a zero-length line, so a prop collapsed to a point would leave a stray speck behind. Their
+landmarks are gated the same way, and both fade with the crossfade rather than popping.
 
 ### Two visual layers
 
@@ -34,8 +49,77 @@ scene looking like this site rather than like an imported 3D model. Keep both.
 ### Builder helpers
 
 `section()` makes a horizontal elliptical ring; `stack()` lofts a list of them; `ringAt()` and
-`tube()` handle arbitrary-angle limbs; `quad()` makes flat panels. Vertices are tagged with a
-`group` string as they are pushed, which is how per-part animation works later.
+`tube()` handle arbitrary-angle limbs; `quad()` makes flat panels and `slab()` bridges two of
+them into a box. Vertices are tagged with a `group` string as they are pushed, which is how the
+rig finds them later. There are thirteen groups: `torso`, `head`, the six arm segments,
+`mouse`, `keyboard`, `pad`, `phone`, and `static` for everything that never moves.
+
+## The rig
+
+Each animated group gets **one affine map**, `p -> to + m * (p - from)`, rebuilt every frame by
+`rigFor()`. There is no scene graph and no per-joint orientation state; the poses are shallow
+enough that composing the three or four transforms explicitly is clearer than a hierarchy.
+
+Arms are posed by **two-bone IK**. A pose says where the wrist goes and `solveElbow()` finds the
+elbow, given a *pole* hint for which way the elbow bulges. Bones keep their rest length by
+construction, so an unreachable target straightens the arm instead of stretching it — the reach
+is clamped just inside full extension, because a straight arm has no defined elbow plane.
+
+The rotations come from `align()`, the shortest rotation taking one direction onto another
+(Rodrigues). Twist about the bone's own axis is left alone: it is invisible on a near-circular
+tube and saves carrying a full orientation per joint. The hand needs no transform of its own —
+as an affine map it is identical to the forearm's, because the forearm already carries the wrist
+to where the hand starts.
+
+**The default pole is the rest pose's own elbow direction**, recovered from the modelled
+skeleton by `restPole()`. Feeding it back in is what makes the solver reproduce the modelled
+pose *exactly* rather than approximately: with no activity asking for anything else, the
+keyboard pose renders pixel-for-pixel as it did before there was a rig. That is the regression
+test — if the resting frame ever changes, something in the rig has drifted.
+
+The head aims rather than rotating by a set angle: a pose gives a **point to look at**, and the
+head takes the shortest rotation from its rest aim (the middle of the monitor) to the new one.
+Aim is measured from the eyes, not from the neck pivot it rotates about, so "look at the phone"
+produces the bow you would expect rather than a shrug.
+
+## Activities
+
+| Activity | What it is | Dwell |
+| -------- | ---------- | ----- |
+| `keys`   | typing, one hand on the mouse — the rest pose | 6.5–10.5s |
+| `pad`    | controller in both hands, sat back from the desk, thumbs on the sticks | 8.5–11.5s |
+| `phone`  | phone held upright in the left hand, thumbed with the right, head bowed | 8.5–11.5s |
+| `rage`   | both palms into the desk, twice | 3.4s |
+
+**Always back to `keys` between activities.** It is the resting pose, it gives every transition
+the same endpoints, and it means the outburst erupts out of ordinary typing rather than out of
+nowhere. Which break comes next is a uniform pick from the other three.
+
+A `Pose` is a flat bag of numbers and points — lean, look target, both wrists and poles, prop
+drift, mouse drift, two prop opacities and an impact energy. Everything in it lerps, so
+crossfading between activities is one `mixPose()` call. Activities crossfade over 0.5–0.6s;
+`rage` snaps in over 0.16s, because nobody eases into losing their temper.
+
+`rage` is the only one with an internal timeline: a keyframe track (`RAGE`) sampled by
+`track()`, with per-segment easing — `accel` into each slam, `decel` out of it. Wind-up at
+0.3s, slam at 0.42s, a second, smaller lift at 0.86s, slam again at 0.98s, then it hunches over
+the desk and settles back to typing by 2.95s. `track()` always returns a *fresh* pose, because
+the keyframes are module constants that get played more than once and callers layer on top of
+the result.
+
+### Impact
+
+`shake` is not an event, it is a field: `exp(-7t)` from each impact time, summed. That makes it
+blend like everything else and stay frame-rate independent. It drives two things — the keyboard
+and mouse hop on the desk, and the camera takes a kick.
+
+**The camera kick is one-sided on purpose, and this is load-bearing.** Dragged to `TILT_MAX` the
+monitor already sits **0.014 scene units** off the top of the frame; downward there is **0.161**
+in the tightest viewport shape (the height-bound one, where `scale = height / 3.75`). A
+symmetric kick therefore cannot fit — the first version used ±0.045 and clipped the top of the
+monitor on 22 frames out of 1200 at full tilt. The vertical term is now `(1 - cos) / 2`, which
+is never negative, at 0.05 — about a third of the margin that actually exists. Horizontal is
+±0.03 against a worst case of 0.255.
 
 ## Projection
 
@@ -82,10 +166,13 @@ only depth cue, and it does the work that a real renderer would do with occlusio
 
 Edges are bucketed into **12 depth bands**, each accumulated into one `Path2D` and stroked
 once. That turns ~700 lines into a dozen canvas state changes rather than seven hundred.
+`strokeBands()` does one pass over the main edges, then one more per visible prop, scaled by
+that prop's opacity.
 
-Measured cost: **0.15 ms/frame** for the stroke work at full desktop size — about **113×
-headroom** against the 16.7 ms 60fps budget, using random full-canvas lines which are longer
-than the real scene's.
+Measured cost: **0.151 ms/frame** for the *entire* draw — rig, projection, strokes and
+landmarks — at 727×634 CSS px, averaged over 600 frames driven through a stepped clock. That is
+about **110× headroom** against the 16.7 ms 60fps budget. The rig added no measurable cost: an
+affine map per group and one 3×3 multiply per vertex disappears next to the canvas work.
 
 Landmarks draw last, depth-sorted, on top.
 
@@ -126,10 +213,14 @@ To stop it auto-rotating entirely, delete the `spin += AUTO_RATE * autoBlend * d
 
 ### Reduced motion
 
-No idle spin, no involuntary body motion, no flicker. Dragging still works — user-initiated
-motion is fine — and the loop stops itself once inertia dies rather than burning frames on a
-still image. The render clock is frozen at `t = 0` in that mode, which is what holds the head
-bob and hand tapping still while the user rotates.
+No idle spin, no involuntary body motion, no flicker, and **no activity cycling** — `advance()`
+is never called, so he stays at the keyboard. Dragging still works — user-initiated motion is
+fine — and the loop stops itself once inertia dies rather than burning frames on a still image.
+The render clock is frozen at `t = 0` in that mode, which is what holds the head bob and hand
+tapping still while the user rotates, and pins the scheduler to `poseKeys(0, 0)`.
+
+Verified: at mount the loop is never registered, the single painted frame is the resting pose
+byte-for-byte, a drag starts the loop, and release stops it again once inertia decays.
 
 ## Testing it
 
@@ -137,3 +228,27 @@ bob and hand tapping still while the user rotates.
 automated browser running offscreen will show a stale canvas after a resize and never animate.
 Reload after resizing rather than trusting a live resize, and verify by reading canvas pixels
 (ink bounds, clipping, fill percentage) rather than by screenshot.
+
+A stale canvas is easy to mistake for a real measurement. Assert it is fresh first:
+`canvas.width === round(rect.width * dpr)`. Otherwise the pane has been resized without a
+redraw and every pixel you read describes a layout that no longer exists.
+
+Three levers make the scene testable without shipping any hooks for it:
+
+- **Drive the clock.** Replace `requestAnimationFrame` with a manual pump, then remount the
+  scene with a client-side navigation (`/reviews` and back — no reload, so the patch survives).
+  The effect then registers with the patched rAF and you can step frames at any rate. Pump at
+  **50 ms** steps: that is exactly the `dt` clamp, so the scheduler and the render clock advance
+  together instead of drifting apart.
+- **Pin the schedule.** The scheduler picks its next break with `Math.random`; overriding it
+  with a constant makes any one activity reproducible. `0.1` → `pad`, `0.4` → `phone`,
+  `0.9` → `rage`.
+- **Freeze the framing.** Dispatch a `pointerdown` and never release. Auto-rotation is gated on
+  `!dragging`, so the spin stays put and every captured frame shares one framing; `pointermove`
+  then steps the spin by an exact amount per frame.
+
+Clipping is the thing worth re-measuring after any change to pose or framing: read the four
+2px border strips of the canvas and require **zero** ink. The current pose set was cleared over
+4500 frames — three tilts including both clamp extremes, three activity schedules, ~180 full
+rotations, in the height-bound viewport shape where the vertical margins are tightest. One
+passing frame proves nothing; the worst case is a particular pose at a particular angle.

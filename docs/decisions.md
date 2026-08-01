@@ -22,9 +22,10 @@ or migrate.
 
 ## Technical
 
-**Hand-rolled 3D instead of Three.js.** ~400 vertices and ~700 edges. The library would have
-outweighed the entire rest of the site; the projection is fifteen lines. See
-[scene.md](scene.md).
+**Hand-rolled 3D instead of Three.js.** 493 vertices and 693 edges. The library would have
+outweighed the entire rest of the site; the projection is fifteen lines. Posing him — the
+controller, the phone, the desk-slamming — needed two-bone IK and an affine map per body part,
+which is another sixty lines, not a dependency. See [scene.md](scene.md).
 
 **Canvas, not SVG, for the scene.** The first version was animated SVG with CSS keyframes —
 elegant, no client JS, but flat. Real 3D needs per-frame recomputation of every vertex, which
@@ -49,7 +50,7 @@ gone rather than patched.
 | Considered                               | Why not                                                                 |
 | ---------------------------------------- | ----------------------------------------------------------------------- |
 | Light mode                               | Doubles CSS surface, fights the CRT aesthetic, nobody asked              |
-| Three.js / WebGL                         | ~150KB for 400 vertices                                                  |
+| Three.js / WebGL                         | ~150KB for 493 vertices                                                  |
 | A community/voting layer                  | Needs an audience first; an empty board looks dead                       |
 | Serif editorial restyle                   | Considered for "elegant"; would have refined the character out of it     |
 | Dropping the scanlines and toasts         | Offered and declined — the gimmicks are the personality                  |

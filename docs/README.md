@@ -8,7 +8,7 @@ detailed lives here.
 | [architecture.md](architecture.md)       | Stack, rendering model, file map, data layer                       |
 | [content.md](content.md)                 | Writing reviews, frontmatter schema, the score scale, editorial voice |
 | [design-system.md](design-system.md)     | Tokens, typography, the layout shell, the accent rule              |
-| [scene.md](scene.md)                     | The 3D hero scene: geometry, projection, interaction, performance  |
+| [scene.md](scene.md)                     | The 3D hero scene: geometry, the rig, activities, projection, interaction, performance |
 | [conventions.md](conventions.md)         | Error handling, sanctioned `catch` blocks, accessibility, verification |
 | [decisions.md](decisions.md)             | Why the site is the way it is, and what was deliberately rejected  |
 | [deployment.md](deployment.md)           | Vercel, the domain, DNS                                            |

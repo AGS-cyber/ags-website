@@ -7,8 +7,14 @@ import { useEffect, useRef } from "react";
  *
  * The body is not a stick figure. It is a mesh generated from an anatomical
  * skeleton — elliptical cross-sections lofted through the torso, tapered tubes
- * swept along each limb, a lofted skull, and hands with individual fingers on
- * the keys. Roughly 400 vertices, built once at module load.
+ * swept along each limb, a lofted skull, and hands with individual fingers.
+ * 493 vertices and 693 edges, built once at module load.
+ *
+ * He does not only type. A scheduler cycles him through activities — keyboard
+ * and mouse, a controller, a phone held upright, and the occasional loss of
+ * composure where he slams both palms on the desk. Poses are driven by
+ * two-bone IK on each arm, so a pose is written as "put the wrist here" and
+ * the elbow follows without the limb ever stretching.
  *
  * Two visual layers: the mesh gives human structure, and a smaller set of
  * anatomical landmarks are drawn as dots on top, which is what keeps it looking
@@ -18,10 +24,12 @@ import { useEffect, useRef } from "react";
  * fifteen lines, and a WebGL dependency would outweigh the whole site.
  *
  * Decorative, so hidden from assistive tech. Under prefers-reduced-motion it
- * paints one static frame and never loops.
+ * paints one static frame of the keyboard pose and never loops.
  */
 
 type Vec3 = [number, number, number];
+/** Row-major 3x3. Hand-rolled maths kernel; a tuple type buys nothing here. */
+type Mat3 = number[];
 
 /* -------------------------------------------------------------------------
    Geometry buffers, filled once at module load.
@@ -32,6 +40,14 @@ const groups: string[] = [];
 const edges: [number, number][] = [];
 const joints: { at: Vec3; group: string; r: number }[] = [];
 
+/**
+ * Props that only exist during one activity keep their edges out of the main
+ * list, so a hidden controller costs nothing to skip. It also has to be a skip
+ * rather than a zero alpha: `lineCap: "round"` paints a dot for a zero-length
+ * line, so a collapsed prop would leave a stray speck behind.
+ */
+const propEdges: Record<string, [number, number][]> = { pad: [], phone: [] };
+
 let group = "static";
 
 function vert(v: Vec3): number {
@@ -41,7 +57,7 @@ function vert(v: Vec3): number {
 }
 
 function edge(a: number, b: number) {
-  edges.push([a, b]);
+  (propEdges[group] ?? edges).push([a, b]);
 }
 
 /** Close a ring of indices into a loop. */
@@ -87,6 +103,18 @@ function stack(sections: number[][]) {
 
 function sub(a: Vec3, b: Vec3): Vec3 {
   return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function add(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+function scaled(a: Vec3, s: number): Vec3 {
+  return [a[0] * s, a[1] * s, a[2] * s];
+}
+
+function dot(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
 function cross(a: Vec3, b: Vec3): Vec3 {
@@ -153,12 +181,21 @@ function quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3): number[] {
   return ids;
 }
 
+/** A box with thickness, given two parallel quads. */
+function slab(a: Vec3[], b: Vec3[]) {
+  bridge(quad(a[0], a[1], a[2], a[3]), quad(b[0], b[1], b[2], b[3]));
+}
+
 function landmark(at: Vec3, r = 1) {
   joints.push({ at, group, r });
 }
 
 /* -------------------------------------------------------------------------
    The skeleton. Figure faces +X, seated, leaning slightly forward.
+
+   Rest pose is the keyboard-and-mouse pose: every other activity is expressed
+   as a departure from it, and the rig reproduces this pose exactly when no
+   activity is asking for anything else.
 ------------------------------------------------------------------------- */
 
 const shoulderL: Vec3 = [0.45, 1.24, -0.225];
@@ -178,6 +215,13 @@ const ankleL: Vec3 = [0.95, 0.12, -0.19];
 const ankleR: Vec3 = [0.95, 0.12, 0.19];
 const toeL: Vec3 = [1.14, 0.05, -0.19];
 const toeR: Vec3 = [1.14, 0.05, 0.19];
+
+/** Pelvis centre — the torso leans about this. */
+const HIP: Vec3 = [0.31, 0.57, 0];
+/** Base of the neck — the head turns about this. */
+const NECK: Vec3 = [0.47, 1.34, 0];
+/** Roughly where the eyes are; head aim is measured from here, not the pivot. */
+const EYES: Vec3 = [0.52, 1.6, 0];
 
 /* ---- torso: lofted elliptical sections, waist in, shoulders out ---- */
 group = "torso";
@@ -233,7 +277,7 @@ landmark(wristL, 1);
 group = "foreR";
 landmark(wristR, 1);
 
-/* ---- hands: palm plus four fingers, tips resting on the hardware ---- */
+/* ---- hands: palm plus four fingers ---- */
 group = "handL";
 tube(wristL, knuckL, 0.04, 0.05, 6, 1);
 for (let f = 0; f < 4; f += 1) {
@@ -257,11 +301,67 @@ for (let f = 0; f < 4; f += 1) {
   edge(b, c);
 }
 landmark(knuckR, 1);
-// the mouse travels with the hand on it
+
+/* ---- the mouse, on the desk under the right hand ---- */
+group = "mouse";
 stack([
   section(1.22, 0.74, 0.41, 0.055, 0.042, 6),
   section(1.22, 0.775, 0.41, 0.04, 0.03, 6),
 ]);
+
+/* -------------------------------------------------------------------------
+   Props. Both are modelled where they are actually held, not in the rest
+   hand — the pose that uses one places the wrists around it by design, so
+   authoring them in place is what makes the grip line up.
+------------------------------------------------------------------------- */
+
+/* ---- gamepad, held in front of the chest ---- */
+group = "pad";
+slab(
+  [
+    [0.9, 1.005, -0.19],
+    [1.05, 1.005, -0.19],
+    [1.05, 1.005, 0.19],
+    [0.9, 1.005, 0.19],
+  ],
+  [
+    [0.9, 0.945, -0.19],
+    [1.05, 0.945, -0.19],
+    [1.05, 0.945, 0.19],
+    [0.9, 0.945, 0.19],
+  ],
+);
+// grips fall away from the body of the pad, back towards the palms
+tube([0.94, 0.95, -0.16], [0.88, 0.855, -0.225], 0.03, 0.022, 5, 1);
+tube([0.94, 0.95, 0.16], [0.88, 0.855, 0.225], 0.03, 0.022, 5, 1);
+loop(section(0.98, 1.008, -0.08, 0.022, 0.022, 6));
+loop(section(0.98, 1.008, 0.08, 0.022, 0.022, 6));
+landmark([0.98, 1.012, -0.08], 0.9);
+landmark([0.98, 1.012, 0.08], 0.9);
+
+/* ---- phone, held upright in the left hand ---- */
+group = "phone";
+slab(
+  [
+    [0.838, 1.16, -0.085],
+    [0.838, 1.5, -0.085],
+    [0.838, 1.5, 0.085],
+    [0.838, 1.16, 0.085],
+  ],
+  [
+    [0.862, 1.16, -0.085],
+    [0.862, 1.5, -0.085],
+    [0.862, 1.5, 0.085],
+    [0.862, 1.16, 0.085],
+  ],
+);
+/** The lit face, filled like the monitor. Faces -X, which is where he is. */
+const PHONE_SCREEN: Vec3[] = [
+  [0.836, 1.19, -0.068],
+  [0.836, 1.47, -0.068],
+  [0.836, 1.47, 0.068],
+  [0.836, 1.19, 0.068],
+];
 
 /* ---- legs, folded under the desk ---- */
 group = "static";
@@ -300,42 +400,42 @@ for (let s = 0; s < 5; s += 1) {
 }
 
 /* ---- desk: a slab with thickness, plus far legs ---- */
-{
-  const top = quad(
+slab(
+  [
     [0.95, 0.7, -1.02],
     [2.75, 0.7, -1.02],
     [2.75, 0.7, 1.02],
     [0.95, 0.7, 1.02],
-  );
-  const under = quad(
+  ],
+  [
     [0.95, 0.655, -1.02],
     [2.75, 0.655, -1.02],
     [2.75, 0.655, 1.02],
     [0.95, 0.655, 1.02],
-  );
-  bridge(top, under);
-}
+  ],
+);
 tube([2.68, 0.655, -0.95], [2.68, -0.38, -0.95], 0.03, 0.03, 4, 1);
 tube([2.68, 0.655, 0.95], [2.68, -0.38, 0.95], 0.03, 0.03, 4, 1);
 
-/* ---- keyboard ---- */
-{
-  const top = quad(
+/* ---- keyboard: its own group so it can jump when the desk is hit ---- */
+group = "keyboard";
+slab(
+  [
     [1.0, 0.725, -0.38],
     [1.64, 0.725, -0.38],
     [1.64, 0.725, 0.38],
     [1.0, 0.725, 0.38],
-  );
-  const base = quad(
+  ],
+  [
     [1.0, 0.7, -0.38],
     [1.64, 0.7, -0.38],
     [1.64, 0.7, 0.38],
     [1.0, 0.7, 0.38],
-  );
-  bridge(top, base);
-}
+  ],
+);
 
 /* ---- monitor ---- */
+group = "static";
 const SCREEN: Vec3[] = [
   [2.32, 0.88, -0.74],
   [2.32, 1.88, -0.74],
@@ -354,6 +454,9 @@ const SCREEN: Vec3[] = [
 }
 tube([2.37, 0.88, 0], [2.37, 0.715, 0], 0.045, 0.06, 5, 1);
 loop(section(2.37, 0.71, 0, 0.1, 0.17, 8));
+
+/** Where he looks when he is looking at the monitor. */
+const SCREEN_MID: Vec3 = [2.32, 1.38, 0];
 
 /* -------------------------------------------------------------------------
    Camera and framing.
@@ -390,24 +493,462 @@ function clamp(v: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, v));
 }
 
-/** Per-group motion, applied in 3D so it survives the rotation. */
-function offsetFor(g: string, t: number): Vec3 {
-  switch (g) {
-    case "head":
-      return [Math.sin(t * 1.9) * 0.008, Math.sin(t * 2.3) * 0.026, 0];
-    case "torso":
-      return [0, Math.sin(t * 1.4) * 0.011, 0];
-    case "handL":
-      return [0, Math.abs(Math.sin(t * 13)) * 0.03, 0];
-    case "foreL":
-      return [0, Math.abs(Math.sin(t * 13)) * 0.012, 0];
-    case "handR":
-      return [Math.sin(t * 1.3) * 0.025, 0, Math.sin(t * 0.9) * 0.04];
-    case "foreR":
-      return [Math.sin(t * 1.3) * 0.01, 0, Math.sin(t * 0.9) * 0.016];
-    default:
-      return [0, 0, 0];
+function lerp(a: number, b: number, k: number) {
+  return a + (b - a) * k;
+}
+
+function lerp3(a: Vec3, b: Vec3, k: number): Vec3 {
+  return [lerp(a[0], b[0], k), lerp(a[1], b[1], k), lerp(a[2], b[2], k)];
+}
+
+/* -------------------------------------------------------------------------
+   The rig.
+
+   Every animated group gets one affine map: p -> to + m * (p - from). Arms are
+   posed by two-bone IK, so an activity says where the wrist goes and the elbow
+   is solved for. Bones keep their rest length by construction — an unreachable
+   target straightens the arm rather than stretching it.
+------------------------------------------------------------------------- */
+
+type Xform = { m: Mat3; from: Vec3; to: Vec3 };
+
+const IDENTITY: Mat3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+const ORIGIN: Vec3 = [0, 0, 0];
+
+function matVec(m: Mat3, v: Vec3): Vec3 {
+  return [
+    m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
+    m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
+    m[6] * v[0] + m[7] * v[1] + m[8] * v[2],
+  ];
+}
+
+function matMul(a: Mat3, b: Mat3): Mat3 {
+  const o: number[] = new Array(9);
+  for (let r = 0; r < 3; r += 1) {
+    for (let c = 0; c < 3; c += 1) {
+      o[r * 3 + c] =
+        a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c];
+    }
   }
+  return o;
+}
+
+function apply(x: Xform, p: Vec3): Vec3 {
+  return add(x.to, matVec(x.m, sub(p, x.from)));
+}
+
+/** Rotation about the lateral axis: pitching forward and back. */
+function rotZ(a: number): Mat3 {
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return [c, -s, 0, s, c, 0, 0, 0, 1];
+}
+
+/**
+ * Shortest rotation taking direction `a` onto direction `b` (Rodrigues). Used
+ * to swing a bone from its rest direction to wherever the pose wants it: the
+ * twist about the bone's own axis is left alone, which is invisible on a
+ * near-circular tube and saves carrying a full orientation per joint.
+ */
+function align(a: Vec3, b: Vec3): Mat3 {
+  const u = norm(a);
+  const v = norm(b);
+  const c = clamp(dot(u, v), -1, 1);
+  const axis = cross(u, v);
+  const s = Math.hypot(axis[0], axis[1], axis[2]);
+  if (s < 1e-6) {
+    // Parallel, or antiparallel — the poses never fold a bone back on itself,
+    // so the only case that reaches here is "already aligned".
+    return IDENTITY;
+  }
+  const [x, y, z] = scaled(axis, 1 / s);
+  const t = 1 - c;
+  return [
+    t * x * x + c, t * x * y - s * z, t * x * z + s * y,
+    t * x * y + s * z, t * y * y + c, t * y * z - s * x,
+    t * x * z - s * y, t * y * z + s * x, t * z * z + c,
+  ];
+}
+
+/** Where the elbow goes, given a shoulder, a wrist target and a pole hint. */
+function solveElbow(
+  s: Vec3,
+  w: Vec3,
+  l1: number,
+  l2: number,
+  pole: Vec3,
+): Vec3 {
+  const d = sub(w, s);
+  const reach = Math.hypot(d[0], d[1], d[2]);
+  // Clamped just inside full extension: a straight arm has no defined elbow
+  // plane, and an over-reaching target would otherwise pull the bones apart.
+  const len = clamp(reach, Math.abs(l1 - l2) + 1e-3, l1 + l2 - 1e-3);
+  const n = norm(d);
+  const cosA = clamp((l1 * l1 + len * len - l2 * l2) / (2 * l1 * len), -1, 1);
+  const a = Math.acos(cosA);
+  let u = sub(pole, scaled(n, dot(pole, n)));
+  if (Math.hypot(u[0], u[1], u[2]) < 1e-6) {
+    u = [0, -1, 0];
+  }
+  u = norm(u);
+  return add(add(s, scaled(n, l1 * Math.cos(a))), scaled(u, l1 * Math.sin(a)));
+}
+
+const BONE = {
+  upperL: Math.hypot(...sub(elbowL, shoulderL)),
+  foreL: Math.hypot(...sub(wristL, elbowL)),
+  upperR: Math.hypot(...sub(elbowR, shoulderR)),
+  foreR: Math.hypot(...sub(wristR, elbowR)),
+};
+
+/**
+ * The rest pose's own elbow direction, reused as the default pole. Feeding it
+ * back in is what makes the solver reproduce the modelled pose exactly rather
+ * than approximately — the keyboard pose is bit-identical to the geometry.
+ */
+function restPole(s: Vec3, e: Vec3, w: Vec3): Vec3 {
+  const n = norm(sub(w, s));
+  const v = sub(e, s);
+  return norm(sub(v, scaled(n, dot(v, n))));
+}
+const POLE_L = restPole(shoulderL, elbowL, wristL);
+const POLE_R = restPole(shoulderR, elbowR, wristR);
+
+/** Head aim in the rest pose — straight at the middle of the monitor. */
+const REST_LOOK = norm(sub(SCREEN_MID, EYES));
+
+/* -------------------------------------------------------------------------
+   Poses and activities.
+------------------------------------------------------------------------- */
+
+type Pose = {
+  /** Torso pitch in radians; positive leans forward. */
+  lean: number;
+  /** Point the eyes are aimed at. */
+  look: Vec3;
+  wristL: Vec3;
+  poleL: Vec3;
+  wristR: Vec3;
+  poleR: Vec3;
+  /** Prop drift, so a held prop shares the hand's wander. */
+  propAt: Vec3;
+  /** Mouse drift, so it travels under the hand pushing it. */
+  mouse: Vec3;
+  /** Prop opacity, 0..1 — also gates whether the prop is drawn at all. */
+  pad: number;
+  phone: number;
+  /** Impact energy, 0..1, decaying after a hit. Drives shake and rattle. */
+  shake: number;
+};
+
+function makePose(o: Partial<Pose>): Pose {
+  return {
+    lean: 0,
+    look: SCREEN_MID,
+    wristL,
+    poleL: POLE_L,
+    wristR,
+    poleR: POLE_R,
+    propAt: ORIGIN,
+    mouse: ORIGIN,
+    pad: 0,
+    phone: 0,
+    shake: 0,
+    ...o,
+  };
+}
+
+function mixPose(a: Pose, b: Pose, k: number): Pose {
+  return {
+    lean: lerp(a.lean, b.lean, k),
+    look: lerp3(a.look, b.look, k),
+    wristL: lerp3(a.wristL, b.wristL, k),
+    poleL: lerp3(a.poleL, b.poleL, k),
+    wristR: lerp3(a.wristR, b.wristR, k),
+    poleR: lerp3(a.poleR, b.poleR, k),
+    propAt: lerp3(a.propAt, b.propAt, k),
+    mouse: lerp3(a.mouse, b.mouse, k),
+    pad: lerp(a.pad, b.pad, k),
+    phone: lerp(a.phone, b.phone, k),
+    shake: lerp(a.shake, b.shake, k),
+  };
+}
+
+const smooth = (k: number) => k * k * (3 - 2 * k);
+const accel = (k: number) => k * k;
+const decel = (k: number) => 1 - (1 - k) * (1 - k);
+
+type Frame = { at: number; ease: (k: number) => number; pose: Pose };
+
+/**
+ * Sample a keyframe track at `p` seconds, holding the ends. Always a fresh
+ * pose — callers layer on top of the result, and the keyframes themselves are
+ * module constants that must survive being played more than once.
+ */
+function track(frames: Frame[], p: number): Pose {
+  if (p <= frames[0].at) {
+    return { ...frames[0].pose };
+  }
+  for (let i = 1; i < frames.length; i += 1) {
+    if (p <= frames[i].at) {
+      const a = frames[i - 1];
+      const b = frames[i];
+      return mixPose(
+        a.pose,
+        b.pose,
+        b.ease((p - a.at) / Math.max(1e-6, b.at - a.at)),
+      );
+    }
+  }
+  return { ...frames[frames.length - 1].pose };
+}
+
+/* ---- typing, one hand on the mouse: the resting activity ---- */
+function poseKeys(p: number, t: number): Pose {
+  const mouse: Vec3 = [
+    Math.sin(t * 1.3) * 0.025,
+    0,
+    Math.sin(t * 0.9) * 0.04,
+  ];
+  return makePose({
+    lean: Math.sin(t * 1.4) * 0.012,
+    look: [SCREEN_MID[0], SCREEN_MID[1] + Math.sin(t * 2.3) * 0.17, Math.sin(t * 1.9) * 0.1],
+    // The tapping hand: a fast bob, never below the keys.
+    wristL: [wristL[0], wristL[1] + Math.abs(Math.sin(t * 13)) * 0.03, wristL[2]],
+    wristR: add(wristR, mouse),
+    mouse,
+  });
+}
+
+/* ---- controller, sat back from the desk ---- */
+function posePad(p: number, t: number): Pose {
+  const drift: Vec3 = [
+    Math.sin(t * 1.7) * 0.006,
+    Math.sin(t * 2.2) * 0.007,
+    Math.sin(t * 1.3) * 0.008,
+  ];
+  // Thumbs working the sticks, out of phase so the hands are never in step.
+  const thumbL = Math.sin(t * 6.5) * 0.011;
+  const thumbR = Math.sin(t * 5.1 + 1) * 0.011;
+  return makePose({
+    lean: -0.1 + Math.sin(t * 1.1) * 0.02,
+    look: [
+      SCREEN_MID[0],
+      SCREEN_MID[1] + Math.sin(t * 1.7) * 0.13,
+      Math.sin(t * 0.8) * 0.16,
+    ],
+    wristL: add([0.78, 0.95 + thumbL, -0.17], drift),
+    poleL: [-0.35, -1, -0.55],
+    wristR: add([0.79, 0.95 + thumbR, 0.21], drift),
+    poleR: [-0.35, -1, 0.55],
+    propAt: drift,
+    pad: 1,
+  });
+}
+
+/* ---- phone, held upright, thumbed with the other hand ---- */
+function posePhone(p: number, t: number): Pose {
+  const drift: Vec3 = [
+    Math.sin(t * 0.9) * 0.006,
+    Math.sin(t * 1.3) * 0.008,
+    Math.sin(t * 1.1) * 0.005,
+  ];
+  // Taps land on the screen and travel around it between taps.
+  const tap = Math.pow(Math.abs(Math.sin(t * 3.4)), 3);
+  const roam: Vec3 = [0, Math.sin(t * 0.8) * 0.045, Math.sin(t * 1.15) * 0.05];
+  return makePose({
+    lean: -0.06,
+    // Held below eye level, so the head comes down to it — about 32 degrees
+    // off the monitor, which is what makes the activity read at a glance.
+    look: [0.85, 1.33, 0],
+    wristL: add([0.72, 1.1, -0.05], drift),
+    poleL: [0, -1, -0.4],
+    wristR: add(add([0.762, 1.176, 0.139], drift), add(roam, [tap * 0.022, 0, 0])),
+    poleR: [0, -1, 0.5],
+    propAt: drift,
+    phone: 1,
+  });
+}
+
+/* ---- losing it: both palms into the desk, twice ---- */
+const SLAM_L: Vec3 = [1.04, 0.755, -0.55];
+const SLAM_R: Vec3 = [1.07, 0.755, 0.55];
+const SLAM_POLE_L: Vec3 = [-0.3, -1, -0.6];
+const SLAM_POLE_R: Vec3 = [-0.3, -1, 0.6];
+const DESK_LOOK: Vec3 = [1.25, 0.66, 0];
+
+const slamPose = (y: number, lean: number) =>
+  makePose({
+    lean,
+    look: DESK_LOOK,
+    wristL: [SLAM_L[0], y, SLAM_L[2]],
+    poleL: SLAM_POLE_L,
+    wristR: [SLAM_R[0], y, SLAM_R[2]],
+    poleR: SLAM_POLE_R,
+  });
+
+const RAGE: Frame[] = [
+  { at: 0, ease: smooth, pose: makePose({}) },
+  {
+    // fists up, chair-back, chin up: the wind-up
+    at: 0.3,
+    ease: decel,
+    pose: makePose({
+      lean: -0.13,
+      look: [1.35, 2.05, 0],
+      wristL: [0.72, 1.3, -0.3],
+      poleL: [-0.2, -1, -0.5],
+      wristR: [0.75, 1.3, 0.32],
+      poleR: [-0.2, -1, 0.5],
+    }),
+  },
+  { at: 0.42, ease: accel, pose: slamPose(0.755, 0.18) },
+  { at: 0.58, ease: decel, pose: slamPose(0.775, 0.16) },
+  {
+    at: 0.86,
+    ease: decel,
+    pose: makePose({
+      lean: -0.06,
+      look: [1.3, 1.9, 0],
+      wristL: [0.8, 1.16, -0.34],
+      poleL: [-0.25, -1, -0.55],
+      wristR: [0.83, 1.16, 0.36],
+      poleR: [-0.25, -1, 0.55],
+    }),
+  },
+  { at: 0.98, ease: accel, pose: slamPose(0.755, 0.18) },
+  { at: 1.14, ease: decel, pose: slamPose(0.775, 0.16) },
+  // seething, hands still flat on the desk, then back to work
+  { at: 1.72, ease: smooth, pose: slamPose(0.79, 0.11) },
+  { at: 2.4, ease: smooth, pose: makePose({ lean: 0.02 }) },
+  { at: 2.95, ease: smooth, pose: makePose({}) },
+];
+
+const IMPACTS = [0.42, 0.98];
+
+function poseRage(p: number, t: number): Pose {
+  const base = track(RAGE, p);
+  // Impact energy decays over about half a second; two hits can overlap.
+  let shake = 0;
+  for (const hit of IMPACTS) {
+    if (p > hit) {
+      shake += Math.exp((hit - p) * 7);
+    }
+  }
+  base.shake = Math.min(1, shake);
+  // Breathing hard on the way down from it, ramped in over half a second so
+  // the sine does not appear mid-swing and pop the torso.
+  base.lean += Math.sin(t * 4.6) * 0.014 * clamp((p - 1.7) * 2, 0, 1);
+  return base;
+}
+
+type Activity = {
+  pose: (p: number, t: number) => Pose;
+  /** How long it runs, seconds. */
+  dwell: () => number;
+  /** How long the crossfade into it takes. */
+  fade: number;
+};
+
+const ACTIVITIES: Record<string, Activity> = {
+  keys: { pose: poseKeys, dwell: () => 6.5 + Math.random() * 4, fade: 0.5 },
+  pad: { pose: posePad, dwell: () => 8.5 + Math.random() * 3, fade: 0.6 },
+  phone: { pose: posePhone, dwell: () => 8.5 + Math.random() * 3, fade: 0.6 },
+  // Snaps in — nobody eases into losing their temper — and the track itself
+  // is 2.95s long, so the dwell only has to outlast it.
+  rage: { pose: poseRage, dwell: () => 3.4, fade: 0.16 },
+};
+
+const BREAKS = ["pad", "phone", "rage"];
+
+/**
+ * Always back to the keyboard between activities: it is the resting pose, it
+ * gives every transition the same endpoints, and it means the outburst erupts
+ * out of ordinary typing rather than out of nowhere.
+ */
+function nextActivity(current: string): string {
+  if (current !== "keys") {
+    return "keys";
+  }
+  return BREAKS[Math.floor(Math.random() * BREAKS.length)];
+}
+
+/** Build the frame's transforms from a pose. */
+function rigFor(pose: Pose): Record<string, Xform> {
+  const torsoM = rotZ(-pose.lean); // +X is forward, so forward lean is -Z
+  const torso: Xform = { m: torsoM, from: HIP, to: HIP };
+
+  const eyes = apply(torso, EYES);
+  const headM = matMul(
+    align(matVec(torsoM, REST_LOOK), sub(pose.look, eyes)),
+    torsoM,
+  );
+  const head: Xform = { m: headM, from: NECK, to: apply(torso, NECK) };
+
+  const arm = (
+    shoulder: Vec3,
+    elbowRest: Vec3,
+    wristRest: Vec3,
+    l1: number,
+    l2: number,
+    target: Vec3,
+    pole: Vec3,
+  ) => {
+    const s = apply(torso, shoulder);
+    const elbow = solveElbow(s, target, l1, l2, pole);
+    const upper: Xform = {
+      m: align(sub(elbowRest, shoulder), sub(elbow, s)),
+      from: shoulder,
+      to: s,
+    };
+    const fore: Xform = {
+      m: align(sub(wristRest, elbowRest), sub(target, elbow)),
+      from: elbowRest,
+      to: elbow,
+    };
+    // The hand rides the forearm: as an affine map that is the same transform,
+    // since the forearm already carries the wrist to where the hand starts.
+    return { upper, fore };
+  };
+
+  const left = arm(
+    shoulderL,
+    elbowL,
+    wristL,
+    BONE.upperL,
+    BONE.foreL,
+    pose.wristL,
+    pose.poleL,
+  );
+  const right = arm(
+    shoulderR,
+    elbowR,
+    wristR,
+    BONE.upperR,
+    BONE.foreR,
+    pose.wristR,
+    pose.poleR,
+  );
+
+  // Things resting on the desk hop when it is hit.
+  const hop = pose.shake * Math.abs(Math.sin(pose.shake * 34)) * 0.03;
+  const shift = (v: Vec3): Xform => ({ m: IDENTITY, from: ORIGIN, to: v });
+
+  return {
+    torso,
+    head,
+    armL: left.upper,
+    foreL: left.fore,
+    handL: left.fore,
+    armR: right.upper,
+    foreR: right.fore,
+    handR: right.fore,
+    mouse: shift([pose.mouse[0], pose.mouse[1] + hop, pose.mouse[2]]),
+    keyboard: shift([0, hop, 0]),
+    pad: shift(pose.propAt),
+    phone: shift(pose.propAt),
+  };
 }
 
 export default function GamerScene() {
@@ -437,12 +978,18 @@ export default function GamerScene() {
 
     let width = 0;
     let height = 0;
+    let scale = 1;
 
     function resize() {
       const rect = wrap!.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       width = rect.width;
       height = rect.height;
+      // Height-limited on desktop, width-limited on phones. The divisors carry
+      // headroom for the worst rotation angle, not just the resting one: the
+      // scene is widest on screen around 60-70 degrees of spin, where the far
+      // desk corners swing out and perspective is still magnifying them.
+      scale = Math.min(width / 4.0, height / 3.75);
       canvas!.width = Math.max(1, Math.round(width * dpr));
       canvas!.height = Math.max(1, Math.round(height * dpr));
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -464,11 +1011,6 @@ export default function GamerScene() {
       const y2 = y0 * ct - z1 * st;
       const z2 = y0 * st + z1 * ct;
 
-      // Height-limited on desktop, width-limited on phones. The divisors carry
-      // headroom for the worst rotation angle, not just the resting one: the
-      // scene is widest on screen around 60-70 degrees of spin, where the far
-      // desk corners swing out and perspective is still magnifying them.
-      const scale = Math.min(width / 4.0, height / 3.75);
       const persp = FOCAL / (CAM_DIST - z2);
 
       return {
@@ -478,27 +1020,44 @@ export default function GamerScene() {
       };
     }
 
+    type Point = { x: number; y: number; z: number };
+
     /** Farther geometry is dimmer and thinner — the only depth cue needed. */
     function depth(z: number) {
       return Math.min(1, Math.max(0, (z + 2.2) / 4.4));
     }
 
-    function render(t: number, spin: number, tilt: number) {
-      ctx!.clearRect(0, 0, width, height);
-      ctx!.lineCap = "round";
-      ctx!.lineJoin = "round";
+    /** Stroke a set of edges bucketed far-to-near, one path per band. */
+    function strokeBands(list: [number, number][], at: Point[], fade: number) {
+      const paths = Array.from({ length: BUCKETS }, () => new Path2D());
+      for (const [a, b] of list) {
+        const pa = at[a];
+        const pb = at[b];
+        const d = depth((pa.z + pb.z) / 2);
+        const bi = Math.min(BUCKETS - 1, Math.floor(d * BUCKETS));
+        paths[bi].moveTo(pa.x, pa.y);
+        paths[bi].lineTo(pb.x, pb.y);
+      }
+      ctx!.strokeStyle = acid;
+      for (let i = 0; i < BUCKETS; i += 1) {
+        const d = (i + 0.5) / BUCKETS;
+        ctx!.globalAlpha = (0.07 + d * 0.4) * fade;
+        ctx!.lineWidth = 0.5 + d * 0.85;
+        ctx!.stroke(paths[i]);
+      }
+    }
 
-      const offsets: Record<string, Vec3> = {};
-      const at = verts.map((v, i) => {
-        const g = groups[i];
-        const o = (offsets[g] ??= offsetFor(g, t));
-        return project([v[0] + o[0], v[1] + o[1], v[2] + o[2]], spin, tilt);
-      });
-
-      // the screen itself, flickering
+    /** Fill a flat panel — the monitor, and the phone's face. */
+    function fillPanel(
+      corners: Vec3[],
+      x: Xform | undefined,
+      spin: number,
+      tilt: number,
+      alpha: number,
+    ) {
       ctx!.beginPath();
-      SCREEN.forEach((p, i) => {
-        const q = project(p, spin, tilt);
+      corners.forEach((p, i) => {
+        const q = project(x ? apply(x, p) : p, spin, tilt);
         if (i === 0) {
           ctx!.moveTo(q.x, q.y);
         } else {
@@ -507,49 +1066,62 @@ export default function GamerScene() {
       });
       ctx!.closePath();
       ctx!.fillStyle = acid;
-      ctx!.globalAlpha = reduced
-        ? 0.12
-        : 0.07 + Math.abs(Math.sin(t * 3.1)) * 0.09;
+      ctx!.globalAlpha = alpha;
       ctx!.fill();
+    }
 
-      // edges, bucketed far to near
-      const paths = Array.from({ length: BUCKETS }, () => new Path2D());
-      for (const [a, b] of edges) {
-        const pa = at[a];
-        const pb = at[b];
-        const d = depth((pa.z + pb.z) / 2);
-        const bi = Math.min(BUCKETS - 1, Math.floor(d * BUCKETS));
-        paths[bi].moveTo(pa.x, pa.y);
-        paths[bi].lineTo(pb.x, pb.y);
+    function render(t: number, pose: Pose, spin: number, tilt: number) {
+      ctx!.lineCap = "round";
+      ctx!.lineJoin = "round";
+
+      const rig = rigFor(pose);
+      const at = verts.map((v, i) => {
+        const x = rig[groups[i]];
+        return project(x ? apply(x, v) : v, spin, tilt);
+      });
+
+      const flicker = 0.07 + Math.abs(Math.sin(t * 3.1)) * 0.09;
+      fillPanel(SCREEN, undefined, spin, tilt, flicker);
+
+      strokeBands(edges, at, 1);
+
+      // Props are drawn only while they are in his hands. Skipped rather than
+      // faded to nothing, because a zero-length round-capped line is a dot.
+      if (pose.pad > 0.02) {
+        strokeBands(propEdges.pad, at, pose.pad);
       }
-
-      ctx!.strokeStyle = acid;
-      for (let i = 0; i < BUCKETS; i += 1) {
-        const d = (i + 0.5) / BUCKETS;
-        ctx!.globalAlpha = 0.07 + d * 0.4;
-        ctx!.lineWidth = 0.5 + d * 0.85;
-        ctx!.stroke(paths[i]);
+      if (pose.phone > 0.02) {
+        strokeBands(propEdges.phone, at, pose.phone);
+        fillPanel(
+          PHONE_SCREEN,
+          rig.phone,
+          spin,
+          tilt,
+          (0.12 + Math.abs(Math.sin(t * 5.7)) * 0.1) * pose.phone,
+        );
       }
 
       // anatomical landmarks on top
       ctx!.fillStyle = acid;
       const dots = joints
-        .map((j) => {
-          const o = (offsets[j.group] ??= offsetFor(j.group, t));
-          return {
-            p: project(
-              [j.at[0] + o[0], j.at[1] + o[1], j.at[2] + o[2]],
-              spin,
-              tilt,
-            ),
-            r: j.r,
-          };
+        .flatMap((j) => {
+          const vis =
+            j.group === "pad"
+              ? pose.pad
+              : j.group === "phone"
+                ? pose.phone
+                : 1;
+          if (vis <= 0.02) {
+            return [];
+          }
+          const x = rig[j.group];
+          return [{ p: project(x ? apply(x, j.at) : j.at, spin, tilt), r: j.r, vis }];
         })
         .sort((m, n) => m.p.z - n.p.z);
 
       for (const dot of dots) {
         const d = depth(dot.p.z);
-        ctx!.globalAlpha = 0.35 + d * 0.65;
+        ctx!.globalAlpha = (0.35 + d * 0.65) * dot.vis;
         ctx!.beginPath();
         ctx!.arc(dot.p.x, dot.p.y, (1.1 + d * 2.1) * dot.r, 0, Math.PI * 2);
         ctx!.fill();
@@ -573,9 +1145,48 @@ export default function GamerScene() {
     let lastMoveAt = 0;
     let idleSince = performance.now();
 
+    /* ---- activity state ---- */
+    let from = "keys";
+    let to = "keys";
+    let mix = 1; // 0 = fully `from`, 1 = fully `to`
+    let fromPhase = 0; // seconds each activity has been running
+    let toPhase = 0;
+    let holdFor = ACTIVITIES.keys.dwell();
+
     let frame = 0;
     let running = false;
     let prev = performance.now();
+
+    function advance(dt: number) {
+      fromPhase += dt;
+      toPhase += dt;
+
+      if (mix < 1) {
+        mix = Math.min(1, mix + dt / ACTIVITIES[to].fade);
+        if (mix === 1) {
+          from = to;
+          fromPhase = toPhase;
+        }
+        return;
+      }
+
+      if (toPhase >= holdFor) {
+        from = to;
+        fromPhase = toPhase;
+        to = nextActivity(to);
+        toPhase = 0;
+        mix = 0;
+        holdFor = ACTIVITIES[to].dwell();
+      }
+    }
+
+    function currentPose(t: number): Pose {
+      const b = ACTIVITIES[to].pose(toPhase, t);
+      if (mix >= 1) {
+        return b;
+      }
+      return mixPose(ACTIVITIES[from].pose(fromPhase, t), b, smooth(mix));
+    }
 
     function draw(now: number) {
       const t = (now - start) / 1000;
@@ -583,13 +1194,38 @@ export default function GamerScene() {
       const sway = reduced ? 0 : Math.sin(t * 0.33) * 0.07 * autoBlend;
       // Under reduced motion the loop still runs while the user drags, but the
       // body's involuntary motions stay frozen: only rotation they are actively
-      // driving should move. Freezing the clock is what holds them still.
-      render(reduced ? 0 : t, spin, tilt + sway);
+      // driving should move. Freezing the clock is what holds them still, and
+      // it also pins the activity scheduler to the resting keyboard pose.
+      const clock = reduced ? 0 : t;
+      const pose = currentPose(clock);
+
+      ctx!.clearRect(0, 0, width, height);
+      if (pose.shake > 0.001) {
+        // Hitting the desk kicks the camera. The vertical half is deliberately
+        // one-sided — it only ever shoves the scene *down*. Dragged to
+        // TILT_MAX the monitor already sits 0.014 units off the top of the
+        // frame, so any upward kick clips it; downward there is 0.161 units of
+        // margin in the tightest viewport shape, and this uses a third of it.
+        // Scaled with the scene, so it is the same shove at any size.
+        ctx!.save();
+        ctx!.translate(
+          Math.sin(clock * 37) * pose.shake * 0.03 * scale,
+          (1 - Math.cos(clock * 44)) * 0.5 * pose.shake * 0.05 * scale,
+        );
+        render(clock, pose, spin, tilt + sway);
+        ctx!.restore();
+        return;
+      }
+      render(clock, pose, spin, tilt + sway);
     }
 
     function step(now: number) {
       const dt = Math.min(0.05, (now - prev) / 1000);
       prev = now;
+
+      if (!reduced) {
+        advance(dt);
+      }
 
       if (!dragging) {
         // Inertia from the last fling, decaying frame-rate independently.
